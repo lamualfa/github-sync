@@ -66,6 +66,10 @@ async function main() {
     // Keep the process running
     console.log('📅 Scheduler is running. Press Ctrl+C to stop.')
 
+    // Run initial update after scheduler starts
+    console.log('🔄 Running initial update...')
+    await scheduler.runUpdate(repoBranch)
+
     // Add heartbeat
     setInterval(() => {
       console.log(`💓 Heartbeat: ${new Date().toISOString()}`)

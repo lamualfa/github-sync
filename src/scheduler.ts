@@ -13,10 +13,7 @@ export class Scheduler {
   public async start(intervalMinutes: number = 15, repoBranch?: string): Promise<void> {
     console.log(`Starting scheduler with ${intervalMinutes}-minute intervals...`)
 
-    // Run immediately on start
-    await this.runUpdate(repoBranch)
-
-    // Schedule recurring updates
+    // Schedule recurring updates - DO NOT run immediately
     const cronExpression = `*/${intervalMinutes} * * * *`
 
     this.task = cron.schedule(cronExpression, async () => {
