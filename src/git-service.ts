@@ -13,8 +13,23 @@ export class GitService {
 
   public async configureGitIdentity(name?: string, email?: string): Promise<void> {
     try {
-      const userName = name || process.env.GIT_USER_NAME || 'Submodule Updater'
-      const userEmail = email || process.env.GIT_USER_EMAIL || 'submodule-updater@system.local'
+      let userName = name || process.env.GIT_USER_NAME
+      let userEmail = email || process.env.GIT_USER_EMAIL
+
+      // If no env vars provided, use the original commit author from latest commit
+      if (!userName || !userEmail) {
+        try {
+          const originalAuthor = await this.getLatestCommitAuthor()
+          userName = userName || originalAuthor.name
+          userEmail = userEmail || originalAuthor.email
+          console.log(`Using original commit author: ${userName} <${userEmail}>`)
+        } catch (authorError) {
+          // Fallback to defaults if we can't get original author
+          userName = userName || 'Submodule Updater'
+          userEmail = userEmail || 'submodule-updater@system.local'
+          console.log(`Using fallback identity: ${userName} <${userEmail}>`)
+        }
+      }
 
       // Configure git identity if not already set
       await this.git.addConfig('user.name', userName)
@@ -75,9 +90,13 @@ export class GitService {
       // Stage the submodule change
       await this.git.add(submodulePath)
 
-      // Create commit message with commit hashes
-      const commitMessage = `Update submodule ${submodulePath}
-      
+      // Get the latest commit message from the repository for sync commit
+      const syncCommitMessage = await this.getLatestCommitMessage()
+
+      // Create commit message with repository commit message and commit hashes
+      const commitMessage = `${syncCommitMessage}
+
+Update submodule ${submodulePath}
 - From: ${fromCommit}
 - To: ${toCommit}`
 
@@ -117,6 +136,45 @@ export class GitService {
       )
     } catch (error) {
       return false
+    }
+  }
+
+  public async getLatestCommitMessage(): Promise<string> {
+    try {
+      const log = await this.git.log({ maxCount: 1 })
+
+      if (log.latest) {
+        return log.latest.message
+      }
+
+      return 'Initial commit'
+    } catch (error) {
+      console.warn('Failed to get latest commit message:', error)
+      return 'Update submodules'
+    }
+  }
+
+  public async getLatestCommitAuthor(): Promise<{ name: string; email: string }> {
+    try {
+      const log = await this.git.log({ maxCount: 1 })
+
+      if (log.latest) {
+        return {
+          name: log.latest.author_name || 'Submodule Updater',
+          email: log.latest.author_email || 'submodule-updater@system.local'
+        }
+      }
+
+      return {
+        name: 'Submodule Updater',
+        email: 'submodule-updater@system.local'
+      }
+    } catch (error) {
+      console.warn('Failed to get latest commit author:', error)
+      return {
+        name: 'Submodule Updater',
+        email: 'submodule-updater@system.local'
+      }
     }
   }
 }
