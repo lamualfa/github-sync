@@ -1,0 +1,10 @@
+[phases.setup]
+nixpkgsArchive = 'dd4cd62125bea781452ac49e71434e5ee9e938d8'
+nixPkgs = ['nodejs_24', ' pnpm']
+
+[phases.install]
+cmds = ['pnpm install']
+
+
+[start]
+cmd = 'pnpm start'

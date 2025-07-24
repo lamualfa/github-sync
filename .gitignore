@@ -5,6 +5,7 @@
 !/pnpm-workspace.yaml
 !/README.md
 !/tsconfig.json
+!/nixpacks.toml
 !/src/
 !/src/**
 !/.env.example
