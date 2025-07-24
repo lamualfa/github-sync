@@ -1,0 +1,34 @@
+{
+  "name": "submodule-updater",
+  "version": "1.0.0",
+  "description": "Automatically update git submodules with latest commits from remote repositories",
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "dev": "tsx src/main.ts",
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "run-once": "RUN_ONCE=true tsx src/main.ts"
+  },
+  "keywords": [
+    "git",
+    "submodule",
+    "automation",
+    "github"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@tsconfig/node24": "24.0.1",
+    "@types/node": "^24.1.0",
+    "tsx": "4.20.3",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@octokit/rest": "^22.0.0",
+    "dotenv": "^17.2.0",
+    "node-cron": "^4.2.1",
+    "simple-git": "^3.28.0"
+  }
+}
