@@ -245,6 +245,10 @@ export class SubmoduleUpdater {
     }
 
     console.log(`📂 Final repository path: ${this.repoPath}`)
+
+    // Configure Git identity for the repository
+    console.log('🔧 Configuring Git identity...')
+    await this.gitService.configureGitIdentity()
   }
 
   public async cleanupRepository(): Promise<void> {

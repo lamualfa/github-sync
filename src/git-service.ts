@@ -11,6 +11,22 @@ export class GitService {
     this.git = simpleGit(repoPath)
   }
 
+  public async configureGitIdentity(name?: string, email?: string): Promise<void> {
+    try {
+      const userName = name || process.env.GIT_USER_NAME || 'Submodule Updater'
+      const userEmail = email || process.env.GIT_USER_EMAIL || 'submodule-updater@system.local'
+
+      // Configure git identity if not already set
+      await this.git.addConfig('user.name', userName)
+      await this.git.addConfig('user.email', userEmail)
+
+      console.log(`Configured Git identity: ${userName} <${userEmail}>`)
+    } catch (error) {
+      console.warn('Failed to configure Git identity:', error)
+      // Continue execution as this might not be critical in all environments
+    }
+  }
+
   public async getCurrentCommit(submodulePath: string): Promise<string> {
     try {
       const absolutePath = join(this.repoPath, submodulePath)
@@ -53,6 +69,9 @@ export class GitService {
     toCommit: string
   ): Promise<void> {
     try {
+      // Ensure Git identity is configured before committing
+      await this.configureGitIdentity()
+
       // Stage the submodule change
       await this.git.add(submodulePath)
 

@@ -110,15 +110,17 @@ The application supports both HTTPS and SSH formats:
 
 ## Environment Variables
 
-| Variable           | Required | Description                                  | Default |
-| ------------------ | -------- | -------------------------------------------- | ------- |
-| `GITHUB_TOKEN`     | ✅        | GitHub personal access token                 | -       |
-| `GITHUB_OWNER`     | ✅        | Repository owner/organization                | -       |
-| `GITHUB_REPO`      | ✅        | Repository name                              | -       |
-| `REPO_PATH`        | ❌        | Local repository path (omit for temp folder) | -       |
-| `REPO_BRANCH`      | ❌        | Branch to clone (when using temp folder)     | `main`  |
-| `INTERVAL_MINUTES` | ❌        | Update interval in minutes                   | `15`    |
-| `RUN_ONCE`         | ❌        | Run once and exit                            | `false` |
+| Variable           | Required | Description                                  | Default                          |
+| ------------------ | -------- | -------------------------------------------- | -------------------------------- |
+| `GITHUB_TOKEN`     | ✅        | GitHub personal access token                 | -                                |
+| `GITHUB_OWNER`     | ✅        | Repository owner/organization                | -                                |
+| `GITHUB_REPO`      | ✅        | Repository name                              | -                                |
+| `REPO_PATH`        | ❌        | Local repository path (omit for temp folder) | -                                |
+| `REPO_BRANCH`      | ❌        | Branch to clone (when using temp folder)     | `main`                           |
+| `INTERVAL_MINUTES` | ❌        | Update interval in minutes                   | `15`                             |
+| `RUN_ONCE`         | ❌        | Run once and exit                            | `false`                          |
+| `GIT_USER_NAME`    | ❌        | Git commit author name                       | `Submodule Updater`              |
+| `GIT_USER_EMAIL`   | ❌        | Git commit author email                      | `submodule-updater@system.local` |
 
 ## Development
 
@@ -158,6 +160,7 @@ This will clone a public repository (facebook/react) to a temporary directory an
 2. **Submodule Not Found**: Check that `.gitmodules` exists and is properly formatted
 3. **Network Issues**: Verify internet connection and GitHub availability
 4. **Authentication**: Make sure the token is correctly set in `.env`
+5. **Git Identity**: "Author identity unknown" error - configure `GIT_USER_NAME` and `GIT_USER_EMAIL` in your `.env` file
 
 ### Debug Mode
 
