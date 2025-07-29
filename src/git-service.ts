@@ -1,6 +1,5 @@
-import simpleGit, { SimpleGit, LogResult } from 'simple-git'
+import simpleGit, { SimpleGit } from 'simple-git'
 import { join } from 'path'
-import { SubmoduleInfo, UpdateResult } from './types.js'
 
 export class GitService {
   private git: SimpleGit
@@ -108,13 +107,137 @@ Update submodule ${submodulePath}
     }
   }
 
-  public async pushChanges(branch?: string): Promise<void> {
+  public async pushChanges(branch?: string, forcePush?: boolean): Promise<void> {
+    const targetBranch = branch || 'main'
+
     try {
-      await this.git.push('origin', branch || 'main')
-      console.log('Pushed changes to remote')
+      console.log(`Attempting to push changes to ${targetBranch}...`)
+
+      if (forcePush) {
+        console.warn('⚠️ Force push enabled - this will overwrite remote changes!')
+        await this.git.push('origin', targetBranch, ['--force'])
+        console.log('Force pushed changes to remote')
+        return
+      }
+
+      try {
+        await this.git.push('origin', targetBranch)
+        console.log('Pushed changes to remote')
+      } catch (error: any) {
+        // Check if this is a "non-fast-forward" error (remote is ahead)
+        const errorMessage = error.message || String(error)
+
+        if (errorMessage.includes('non-fast-forward') ||
+          errorMessage.includes('fetch first') ||
+          errorMessage.includes('rejected')) {
+
+          console.log('Remote branch is ahead, attempting to pull and merge...')
+
+          // Fetch latest changes
+          await this.git.fetch(['origin'])
+
+          // Check if we need to merge or can fast-forward
+          const isBehind = await this.isBehindRemote(targetBranch)
+
+          if (isBehind) {
+            console.log('Local branch is behind remote, using theirs strategy...')
+
+            try {
+              // Use "theirs" strategy - always accept remote changes completely
+              // This will overwrite local changes with remote changes
+              await this.git.pull('origin', targetBranch, ['--strategy=recursive', '--strategy-option=theirs'])
+              console.log('Successfully merged remote changes using theirs strategy - remote changes preserved')
+
+              // Attempt push again after merge
+              await this.git.push('origin', targetBranch)
+              console.log('Pushed changes after resolving with theirs strategy')
+            } catch (mergeError: any) {
+              // Handle any remaining issues
+              await this.handleMergeError(mergeError)
+            }
+          } else {
+            // Check for other potential issues
+            await this.handlePushError(error, targetBranch)
+          }
+        } else {
+          // Handle other types of errors
+          await this.handlePushError(error, targetBranch)
+        }
+      }
     } catch (error) {
       throw new Error(`Failed to push changes: ${error}`)
     }
+  }
+
+  public async isBehindRemote(branch?: string): Promise<boolean> {
+    const targetBranch = branch || 'main'
+
+    try {
+      await this.git.fetch(['origin'])
+
+      // Get local and remote commit hashes
+      const localCommit = await this.git.revparse([targetBranch])
+      const remoteCommit = await this.git.revparse([`origin/${targetBranch}`])
+
+      return localCommit !== remoteCommit
+    } catch (error) {
+      console.warn('Could not determine if branch is behind remote:', error)
+      return false
+    }
+  }
+
+  private async handleMergeError(error: any): Promise<void> {
+    const status = await this.git.status()
+
+    // Since we're using "theirs" strategy, conflicts should be rare
+    // but handle any remaining issues
+    if (status.conflicted.length > 0) {
+      // Try a more aggressive approach - reset to remote and force push
+      console.warn('Conflicts still detected with theirs strategy, attempting force reset...')
+
+      const targetBranch = await this.getCurrentBranch()
+      await this.git.reset(['--hard', `origin/${targetBranch}`])
+
+      console.log('Reset to remote state successfully')
+      return
+    }
+
+    if (status.modified.length > 0 || status.staged.length > 0) {
+      throw new Error(
+        `Working directory has uncommitted changes. Please commit or stash changes first: ` +
+        `${[...status.modified, ...status.staged].join(', ')}`
+      )
+    }
+
+    throw new Error(
+      `Failed to push changes and automatic merge failed: ${error.message}`
+    )
+  }
+
+  private async handlePushError(error: any, branch: string): Promise<void> {
+    const errorMessage = error.message || String(error)
+
+    if (errorMessage.includes('permission denied') || errorMessage.includes('access denied')) {
+      throw new Error(
+        `Permission denied pushing to repository. Please check your credentials and access rights.`
+      )
+    }
+
+    if (errorMessage.includes('repository not found')) {
+      throw new Error(
+        `Repository not found. Please check the remote URL and repository name.`
+      )
+    }
+
+    if (errorMessage.includes('protected branch')) {
+      throw new Error(
+        `Branch '${branch}' is protected and cannot be pushed to directly. ` +
+        `Please use a pull request or contact repository administrators.`
+      )
+    }
+
+    // Re-throw original error
+    throw error
   }
 
   public async getCurrentBranch(): Promise<string> {

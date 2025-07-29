@@ -35,7 +35,10 @@ export class SubmoduleUpdater {
     }
   }
 
-  public async updateSubmodules(repoBranch?: string): Promise<UpdateResult[]> {
+  public async updateSubmodules(repoBranch?: string, options?: {
+    forcePush?: boolean
+    skipPush?: boolean
+  }): Promise<UpdateResult[]> {
     console.log('Starting submodule update process...')
 
     try {
@@ -84,8 +87,28 @@ export class SubmoduleUpdater {
       }
 
       // Push changes if any updates were made
-      if (results.some(r => r.updated)) {
-        await this.gitService.pushChanges()
+      if (!options?.skipPush && results.some(r => r.updated)) {
+        try {
+          await this.gitService.pushChanges(repoBranch, options?.forcePush)
+        } catch (error) {
+          console.error('Failed to push changes:', error)
+
+          // Provide helpful guidance based on the error
+          const errorMessage = error instanceof Error ? error.message : String(error)
+
+          if (errorMessage.includes('merge conflicts') || errorMessage.includes('resolve conflicts')) {
+            console.error('💡 Suggestion: Resolve merge conflicts manually and run again, or use force push if appropriate')
+          } else if (errorMessage.includes('protected branch')) {
+            console.error('💡 Suggestion: Branch is protected. Consider using a pull request workflow instead')
+          } else if (errorMessage.includes('permission denied')) {
+            console.error('💡 Suggestion: Check your git credentials and repository access permissions')
+          }
+
+          // Re-throw to maintain the error chain
+          throw error
+        }
+      } else if (options?.skipPush) {
+        console.log('⏭️ Skipping push due to user configuration')
       }
 
       console.log('Submodule update process completed')
