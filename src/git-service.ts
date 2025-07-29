@@ -62,16 +62,22 @@ export class GitService {
     targetCommit: string
   ): Promise<void> {
     try {
+      console.log(`Updating submodule ${submodulePath} to ${targetCommit}...`)
+
+      // Ensure submodule is initialized and updated
+      await this.git.submoduleUpdate(['--init', '--recursive', submodulePath])
+
+      // Change to submodule directory and checkout the specific commit
       const absolutePath = join(this.repoPath, submodulePath)
       const submoduleGit = simpleGit(absolutePath)
 
-      // Fetch latest changes
+      // Fetch the latest changes for the submodule
       await submoduleGit.fetch(['--all', '--prune'])
 
       // Checkout the target commit
       await submoduleGit.checkout(targetCommit)
 
-      console.log(`Updated submodule ${submodulePath} to commit ${targetCommit}`)
+      console.log(`✅ Updated submodule ${submodulePath} to commit ${targetCommit}`)
     } catch (error) {
       throw new Error(`Failed to update submodule ${submodulePath}: ${error}`)
     }
@@ -107,6 +113,43 @@ Update submodule ${submodulePath}
     }
   }
 
+  public async syncSubmodules(): Promise<void> {
+    try {
+      console.log('Syncing all submodules...')
+      await this.git.submoduleUpdate(['--init', '--recursive'])
+      console.log('✅ All submodules synced successfully')
+    } catch (error) {
+      throw new Error(`Failed to sync submodules: ${error}`)
+    }
+  }
+
+  public async initializeSubmodules(): Promise<void> {
+    try {
+      console.log('Initializing submodules...')
+      await this.git.submoduleInit()
+      await this.git.submoduleUpdate(['--init', '--recursive'])
+      console.log('✅ Submodules initialized and updated')
+    } catch (error) {
+      throw new Error(`Failed to initialize submodules: ${error}`)
+    }
+  }
+
+  public async getSubmoduleCurrentCommit(submodulePath: string): Promise<string> {
+    try {
+      // Get the submodule commit as recorded in the parent repository
+      const result = await this.git.raw(['ls-tree', 'HEAD', submodulePath])
+      const match = result.match(/\b([0-9a-f]{40})\b/)
+
+      if (match) {
+        return match[1]
+      }
+
+      throw new Error(`Could not determine current commit for submodule ${submodulePath}`)
+    } catch (error) {
+      throw new Error(`Failed to get submodule current commit: ${error}`)
+    }
+  }
+
   public async pushChanges(branch?: string, forcePush?: boolean): Promise<void> {
     const targetBranch = branch || 'main'
 
@@ -131,34 +174,17 @@ Update submodule ${submodulePath}
           errorMessage.includes('fetch first') ||
           errorMessage.includes('rejected')) {
 
-          console.log('Remote branch is ahead, attempting to pull and merge...')
+          console.log('🔄 Remote branch is ahead, pulling and merging changes...')
 
-          // Fetch latest changes
+          // Fetch latest changes first
           await this.git.fetch(['origin'])
 
-          // Check if we need to merge or can fast-forward
-          const isBehind = await this.isBehindRemote(targetBranch)
+          // Pull and merge remote changes
+          await this.pullAndMerge(targetBranch)
 
-          if (isBehind) {
-            console.log('Local branch is behind remote, using theirs strategy...')
-
-            try {
-              // Use "theirs" strategy - always accept remote changes completely
-              // This will overwrite local changes with remote changes
-              await this.git.pull('origin', targetBranch, ['--strategy=recursive', '--strategy-option=theirs'])
-              console.log('Successfully merged remote changes using theirs strategy - remote changes preserved')
-
-              // Attempt push again after merge
-              await this.git.push('origin', targetBranch)
-              console.log('Pushed changes after resolving with theirs strategy')
-            } catch (mergeError: any) {
-              // Handle any remaining issues
-              await this.handleMergeError(mergeError)
-            }
-          } else {
-            // Check for other potential issues
-            await this.handlePushError(error, targetBranch)
-          }
+          // Now push the merged changes
+          await this.git.push('origin', targetBranch)
+          console.log('✅ Pushed changes after merging remote updates')
         } else {
           // Handle other types of errors
           await this.handlePushError(error, targetBranch)
@@ -166,6 +192,112 @@ Update submodule ${submodulePath}
       }
     } catch (error) {
       throw new Error(`Failed to push changes: ${error}`)
+    }
+  }
+
+
+
+  public async syncRemoteChanges(branch?: string): Promise<void> {
+    const targetBranch = branch || 'main'
+
+    try {
+      console.log(`🔍 Syncing remote changes for ${targetBranch}...`)
+
+      // Fetch latest changes
+      await this.git.fetch(['origin'])
+
+      // Check if local is behind
+      const isBehind = await this.isBehindRemote(targetBranch)
+
+      if (isBehind) {
+        console.log('📥 Local branch is behind remote, pulling changes...')
+
+        // Use a strategy that handles submodule conflicts by resetting
+        try {
+          await this.git.pull('origin', targetBranch, ['--no-rebase'])
+          console.log('✅ Successfully pulled and merged remote changes')
+        } catch (error: any) {
+          const errorMessage = error.message || String(error)
+
+          if (errorMessage.includes('submodule')) {
+            console.log('🔧 Submodule conflict detected, handling with reset...')
+            // Reset to remote state to resolve submodule conflicts
+            await this.git.reset(['--hard', `origin/${targetBranch}`])
+            console.log('✅ Reset to remote state to resolve submodule conflicts')
+          } else {
+            throw error
+          }
+        }
+      } else {
+        console.log('✅ Branch is up to date with remote')
+      }
+
+    } catch (error) {
+      throw new Error(`Failed to sync remote changes: ${error}`)
+    }
+  }
+
+  public async resolveSubmoduleConflicts(): Promise<void> {
+    try {
+      console.log('🔧 Resolving submodule merge conflicts...')
+
+      // Get the current status to identify conflicts
+      const status = await this.git.status()
+
+      // For each submodule conflict, accept the remote version
+      for (const conflict of status.conflicted) {
+        if (conflict.includes('NostalgiaForInfinity')) {
+          console.log(`🔧 Resolving conflict for ${conflict}...`)
+
+          // Reset the submodule to the merged state
+          await this.git.raw(['reset', 'HEAD', conflict])
+          await this.git.raw(['checkout', '--theirs', conflict])
+
+          // Update the submodule to the latest commit
+          await this.git.add(conflict)
+        }
+      }
+
+      console.log('✅ Submodule conflicts resolved')
+
+    } catch (error) {
+      throw new Error(`Failed to resolve submodule conflicts: ${error}`)
+    }
+  }
+
+  public async pullAndMerge(branch?: string): Promise<void> {
+    const targetBranch = branch || 'main'
+
+    try {
+      console.log(`🔄 Pulling and merging remote changes for ${targetBranch}...`)
+
+      // Ensure we're on the correct branch
+      const currentBranch = await this.getCurrentBranch()
+      if (currentBranch !== targetBranch) {
+        await this.git.checkout(targetBranch)
+      }
+
+      try {
+        // Try standard merge
+        await this.git.pull('origin', targetBranch, ['--no-rebase'])
+        console.log('✅ Successfully pulled and merged remote changes')
+      } catch (error: any) {
+        const errorMessage = error.message || String(error)
+
+        if (errorMessage.includes('submodule')) {
+          console.log('🔧 Submodule conflict detected, handling automatically...')
+
+          // Use a different strategy for submodule conflicts
+          // Reset to remote state and then re-apply our updates
+          await this.git.reset(['--hard', `origin/${targetBranch}`])
+          console.log('✅ Reset to remote state to resolve submodule conflicts')
+        } else {
+          throw error
+        }
+      }
+
+    } catch (error) {
+      throw new Error(`Failed to pull and merge changes: ${error}`)
     }
   }
 

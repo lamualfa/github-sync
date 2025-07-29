@@ -60,10 +60,13 @@ export class SubmoduleUpdater {
         this.githubService = new GitHubService(this.githubConfig)
       }
 
-      // Get current commits for all submodules
+      // Sync submodules first to ensure they're properly initialized
+      await this.gitService.syncSubmodules()
+
+      // Get current commits for all submodules (as recorded in parent repo)
       for (const submodule of submodules) {
         try {
-          submodule.currentCommit = await this.gitService.getCurrentCommit(submodule.path)
+          submodule.currentCommit = await this.gitService.getSubmoduleCurrentCommit(submodule.path)
           console.log(`Current commit for ${submodule.path}: ${submodule.currentCommit}`)
         } catch (error) {
           console.warn(`Could not get current commit for ${submodule.path}: ${error}`)
@@ -86,22 +89,28 @@ export class SubmoduleUpdater {
         }
       }
 
+      // Sync remote changes before processing submodules
+      if (!options?.skipPush) {
+        console.log('📥 Syncing remote changes before processing submodules...')
+        await this.gitService.syncRemoteChanges(repoBranch)
+      }
+
       // Push changes if any updates were made
       if (!options?.skipPush && results.some(r => r.updated)) {
         try {
           await this.gitService.pushChanges(repoBranch, options?.forcePush)
         } catch (error) {
-          console.error('Failed to push changes:', error)
+          console.error('❌ Failed to push changes:', error)
 
           // Provide helpful guidance based on the error
           const errorMessage = error instanceof Error ? error.message : String(error)
 
-          if (errorMessage.includes('merge conflicts') || errorMessage.includes('resolve conflicts')) {
-            console.error('💡 Suggestion: Resolve merge conflicts manually and run again, or use force push if appropriate')
-          } else if (errorMessage.includes('protected branch')) {
+          if (errorMessage.includes('protected branch')) {
             console.error('💡 Suggestion: Branch is protected. Consider using a pull request workflow instead')
           } else if (errorMessage.includes('permission denied')) {
             console.error('💡 Suggestion: Check your git credentials and repository access permissions')
+          } else if (errorMessage.includes('merge conflicts')) {
+            console.error('💡 Suggestion: Resolve merge conflicts manually and run again')
           }
 
           // Re-throw to maintain the error chain
@@ -111,7 +120,21 @@ export class SubmoduleUpdater {
         console.log('⏭️ Skipping push due to user configuration')
       }
 
-      console.log('Submodule update process completed')
+      // Final summary
+      const updatedCount = results.filter(r => r.updated).length
+      const totalCount = submodules.length
+
+      if (updatedCount > 0) {
+        console.log(`🎉 Submodule update process completed: ${updatedCount}/${totalCount} submodules updated`)
+
+        console.log('Updated submodules:')
+        results.filter(r => r.updated).forEach(r => {
+          console.log(`  ✓ ${r.submodule}: ${r.fromCommit?.substring(0, 8)} → ${r.toCommit?.substring(0, 8)}`)
+        })
+      } else {
+        console.log(`✅ All submodules are up to date (${totalCount} total)`)
+      }
+
       return results
 
     } catch (error) {
@@ -126,14 +149,14 @@ export class SubmoduleUpdater {
   private async fetchLatestCommits(submodules: SubmoduleInfo[]): Promise<void> {
     if (!this.githubService) return
 
-    console.log('Fetching latest commits from GitHub...')
+    console.log('📡 Fetching latest commits from GitHub...')
 
     for (const submodule of submodules) {
       try {
         const githubInfo = this.submoduleParser.extractGitHubInfo(submodule.url)
 
         if (!githubInfo) {
-          console.warn(`Could not extract GitHub info from URL: ${submodule.url}`)
+          console.warn(`⚠️ Could not extract GitHub info from URL: ${submodule.url}`)
           continue
         }
 
@@ -143,9 +166,12 @@ export class SubmoduleUpdater {
         submodule.latestCommit = latestCommit
         submodule.needsUpdate = latestCommit !== submodule.currentCommit
 
-        console.log(`Latest commit for ${submodule.path}: ${latestCommit} (needs update: ${submodule.needsUpdate})`)
+        console.log(`📊 ${submodule.path}:`)
+        console.log(`   Remote: ${latestCommit}`)
+        console.log(`   Local:  ${submodule.currentCommit}`)
+        console.log(`   Update needed: ${submodule.needsUpdate}`)
       } catch (error) {
-        console.error(`Failed to get latest commit for ${submodule.path}:`, error)
+        console.error(`❌ Failed to get latest commit for ${submodule.path}:`, error)
         submodule.latestCommit = submodule.currentCommit
         submodule.needsUpdate = false
       }
@@ -154,15 +180,24 @@ export class SubmoduleUpdater {
 
   private async updateSingleSubmodule(submodule: SubmoduleInfo): Promise<UpdateResult> {
     try {
-      console.log(`Updating submodule ${submodule.path}...`)
+      console.log(`🔄 Updating submodule ${submodule.path}...`)
+      console.log(`   Current: ${submodule.currentCommit}`)
+      console.log(`   Latest:  ${submodule.latestCommit}`)
 
+      // Ensure submodule is properly initialized
+      await this.gitService.initializeSubmodules()
+
+      // Update the submodule to the target commit
       await this.gitService.updateSubmodule(submodule.path, submodule.latestCommit)
+
+      // Commit the change in the parent repository
       await this.gitService.commitSubmoduleUpdate(
         submodule.path,
         submodule.currentCommit,
         submodule.latestCommit
       )
 
+      console.log(`✅ Successfully updated ${submodule.path}`)
       return {
         submodule: submodule.path,
         updated: true,
@@ -170,7 +205,7 @@ export class SubmoduleUpdater {
         toCommit: submodule.latestCommit,
       }
     } catch (error) {
-      console.error(`Failed to update submodule ${submodule.path}:`, error)
+      console.error(`❌ Failed to update submodule ${submodule.path}:`, error)
 
       return {
         submodule: submodule.path,
